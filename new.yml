@@ -1,0 +1,74 @@
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: monishbuild09
+  namespace: monday-ci-cd
+spec:
+   strategy:
+     jenkinsPipelineStrategy:
+       jenkinsfile: |-
+         pipeline {
+
+           agent {
+             label 'maven'
+           }
+         
+           stages {
+             stage('git') {
+               steps {
+                 git 'https://github.com/Monishkumar12/cicdproject.git'
+                 }
+             }       
+             stage('Build') {
+               steps {
+                 echo 'Building..'
+               sh 'mvn clean package'
+               }
+             }
+             stage('Create Container Image') {
+               steps {
+                 echo 'Create Container Image..'
+                 
+                 script {
+
+                   openshift.withCluster() { 
+           openshift.withProject("monday-ci-cd") {
+             def buildConfigExists = openshift.selector("bc", "pipeline-mr").exists()
+             if(!buildConfigExists){ 
+               openshift.newBuild("--name=pipeline-mr", "--docker-image=registry.redhat.io/jboss-eap-7/eap74-openjdk8-openshift-rhel7", "--binary")
+             }
+             openshift.selector("bc", "pipeline-mr").startBuild("--from-file=target/sample.war", "--follow") } }
+                 }
+               }
+             }
+             stage('Deploy') {
+               steps {
+                 echo 'Deploying..'
+               
+                 script {
+
+                   openshift.withCluster() { 
+           openshift.withProject("monday-ci-cd") {       
+             def deployment = openshift.selector("dc", "pipeline-mr")
+             if(!deployment.exists()){ 
+               openshift.newApp('pipeline-mr', "--as-deployment-config").narrow('svc').expose()
+             }
+            
+             timeout(5) { 
+               openshift.selector("dc", "pipeline-mr").related('pods').untilEach(1) {
+                 return (it.object().status.phase == "Running") 
+               }
+             }
+           }
+         }
+                 }
+               }
+             }
+           }
+         }
+            
+                
+
+
+
+
